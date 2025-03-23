@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useRef} from 'react';
 import {
   View,
   StyleSheet,
@@ -8,6 +8,7 @@ import {
   SafeAreaView,
   KeyboardAvoidingView,
   Platform,
+  Animated,
 } from 'react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import {useDispatch, useSelector} from 'react-redux';
@@ -35,16 +36,42 @@ type ChatScreenRouteProp = RouteProp<RootStackParamList, 'Chat'>;
 
 const ChatScreen = () => {
   const [messageText, setMessageText] = useState('');
+  const [lastMessageId, setLastMessageId] = useState<string | null>(null);
   const navigation = useNavigation<ChatScreenNavigationProp>();
   const route = useRoute<ChatScreenRouteProp>();
   const dispatch = useDispatch();
   const {conversationId, phoneNumber, avatar} = route.params;
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const headerFadeAnim = useRef(new Animated.Value(0)).current;
 
   const conversation = useSelector((state: RootState) =>
     state.chat.conversations.find(conv => conv.id === conversationId),
   );
 
   useEffect(() => {
+    // Initial animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(headerFadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
     dispatch(setActiveConversation(conversationId));
     dispatch(markConversationAsRead(conversationId));
     return () => {
@@ -54,21 +81,92 @@ const ChatScreen = () => {
 
   const handleSendMessage = () => {
     if (messageText.trim()) {
+      const newMessage = {
+        id: Date.now().toString(), // or however you generate message IDs
+        text: messageText.trim(),
+        // ... other message properties
+      };
       dispatch(sendMessage({conversationId, text: messageText.trim()}));
+      setLastMessageId(newMessage.id);
       setMessageText('');
+      scrollViewRef.current?.scrollToEnd({ animated: true });
     }
+  };
+
+  const MessageBubble = ({ message, isLast }: { message: any, isLast: boolean }) => {
+    const bubbleScale = useRef(new Animated.Value(1)).current;
+
+    useEffect(() => {
+      // Only animate if this is a newly sent message
+      if (message.id === lastMessageId) {
+        bubbleScale.setValue(0);
+        Animated.spring(bubbleScale, {
+          toValue: 1,
+          tension: 40,
+          friction: 7,
+          useNativeDriver: true,
+        }).start(() => {
+          // Clear lastMessageId after animation
+          setLastMessageId(null);
+        });
+      }
+    }, [message.id, lastMessageId]);
+
+    return (
+      <Animated.View
+        style={[
+          styles.messageRow,
+          message.sender === 'me' ? styles.myMessageRow : null,
+          message.id === lastMessageId ? {
+            transform: [{ scale: bubbleScale }],
+            opacity: bubbleScale,
+          } : undefined,
+        ]}>
+        {message.sender === 'them' && (
+          <CustomImage source={{uri: avatar}} style={styles.avatar} />
+        )}
+        <View
+          style={[
+            styles.messageBubble,
+            message.sender === 'me'
+              ? styles.myMessageBubble
+              : styles.theirMessageBubble,
+          ]}>
+          <CustomText color={"#F2F2F2"} style={styles.messageText}>
+            {message.text}
+          </CustomText>
+        </View>
+        <CustomText variant="caption" style={styles.messageTime}>
+          {message.time}
+        </CustomText>
+      </Animated.View>
+    );
   };
 
   return (
     <KeyboardAvoidingView 
-      // behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       behavior={'padding'}
       style={styles.container}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}>
       <SafeAreaView style={styles.safeArea}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+        {/* Animated Header */}
+        <Animated.View style={[styles.header, { opacity: headerFadeAnim }]}>
+          <TouchableOpacity 
+            onPress={() => {
+              Animated.parallel([
+                Animated.timing(fadeAnim, {
+                  toValue: 0,
+                  duration: 200,
+                  useNativeDriver: true,
+                }),
+                Animated.timing(slideAnim, {
+                  toValue: 50,
+                  duration: 200,
+                  useNativeDriver: true,
+                }),
+              ]).start(() => navigation.goBack());
+            }} 
+            style={styles.backButton}>
             <CustomImage
               source={images.back}
               size={16}
@@ -85,43 +183,32 @@ const ChatScreen = () => {
               tintColor="#FFFFFF"
             />
           </TouchableOpacity>
-        </View>
+        </Animated.View>
 
-        <View style={styles.contentContainer}>
+        <Animated.View 
+          style={[
+            styles.contentContainer,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}>
           {/* Messages */}
           <ScrollView 
+            ref={scrollViewRef}
             style={styles.messagesContainer} 
             contentContainerStyle={styles.messagesContent}
             keyboardShouldPersistTaps="handled">
-            {conversation?.messages.map((message) => (
-              <View
-                key={message.id}
-                style={[
-                  styles.messageRow,
-                  message.sender === 'me' ? styles.myMessageRow : null,
-                ]}>
-                {message.sender === 'them' && (
-                  <CustomImage source={{uri: avatar}} style={styles.avatar} />
-                )}
-                <View
-                  style={[
-                    styles.messageBubble,
-                    message.sender === 'me'
-                      ? styles.myMessageBubble
-                      : styles.theirMessageBubble,
-                  ]}>
-                  <CustomText color={"#F2F2F2"} style={styles.messageText}>
-                    {message.text}
-                  </CustomText>
-                </View>
-                <CustomText variant="caption" style={styles.messageTime}>
-                  {message.time}
-                </CustomText>
-              </View>
+            {conversation?.messages.map((message, index) => (
+              <MessageBubble 
+                key={message.id} 
+                message={message}
+                isLast={index === conversation.messages.length - 1}
+              />
             ))}
           </ScrollView>
 
-          {/* Input */}
+          {/* Input - No animation */}
           <View style={styles.inputWrapper}>
             <View style={styles.inputContainer}>
               <TouchableOpacity style={styles.cameraButton}>
@@ -151,7 +238,7 @@ const ChatScreen = () => {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </Animated.View>
       </SafeAreaView>
     </KeyboardAvoidingView>
   );
@@ -266,7 +353,6 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   sendButton: {
-    // backgroundColor: '#1E1B4B',
     backgroundColor: '#A0A0A0',
     width: 32,
     height: 32,

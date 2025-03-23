@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   StatusBar,
   Image,
+  Animated,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {useSelector} from 'react-redux';
@@ -26,10 +27,7 @@ type RootStackParamList = {
 type ConversationsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const formatPhoneNumber = (phone: string) => {
-  // Remove any non-digit characters from the phone number
   const cleaned = phone.replace(/\D/g, '');
-  
-  // Format the phone number as (XXX) XXX-XXXX
   const match = cleaned.match(/^(\d{3})(\d{3})(\d{4})$/);
   if (match) {
     return '(' + match[1] + ') ' + match[2] + '-' + match[3];
@@ -40,6 +38,36 @@ const formatPhoneNumber = (phone: string) => {
 const ConversationsScreen = () => {
   const navigation = useNavigation<ConversationsScreenNavigationProp>();
   const {conversations, contacts} = useSelector((state: RootState) => state.chat);
+  
+  // Animation values
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const scaleAnim = React.useRef(new Animated.Value(0)).current;
+  const contactsSlideAnim = React.useRef(new Animated.Value(-50)).current;
+
+  useEffect(() => {
+    // Parallel animations when screen loads
+    Animated.parallel([
+      // Fade in animation for conversations
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      }),
+      // Scale animation for FAB
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 40,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+      // Slide in animation for contacts
+      Animated.timing(contactsSlideAnim, {
+        toValue: 0,
+        duration: 1000,
+        useNativeDriver: true,
+      })
+    ]).start();
+  }, []);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -68,15 +96,18 @@ const ConversationsScreen = () => {
       </View>
 
       {/* Recent Contacts */}
-      <ScrollView 
+      <Animated.ScrollView 
         horizontal 
         showsHorizontalScrollIndicator={false}
-        style={styles.recentContactsContainer}
+        style={[styles.recentContactsContainer, {
+          transform: [{ translateX: contactsSlideAnim }]
+        }]}
         contentContainerStyle={styles.recentContactsContent}>
         {contacts.map((contact) => (
           <TouchableOpacity
             key={contact.id}
             style={styles.recentContact}
+            activeOpacity={0.7}
             onPress={() =>
               navigation.navigate('Chat', {
                 conversationId: contact.id,
@@ -90,17 +121,21 @@ const ConversationsScreen = () => {
             </CustomText>
           </TouchableOpacity>
         ))}
-      </ScrollView>
+      </Animated.ScrollView>
 
       {/* Conversations */}
       <View style={styles.conversationsWrapper}>
-        <ScrollView 
-          style={styles.conversationsContainer}
+        <Animated.ScrollView 
+          style={[
+            styles.conversationsContainer,
+            { opacity: fadeAnim }
+          ]}
           showsVerticalScrollIndicator={false}>
           {conversations.map((conversation) => (
             <TouchableOpacity
               key={conversation.id}
               style={styles.conversationItem}
+              activeOpacity={0.7}
               onPress={() =>
                 navigation.navigate('Chat', {
                   conversationId: conversation.id,
@@ -127,17 +162,38 @@ const ConversationsScreen = () => {
               </View>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </Animated.ScrollView>
       </View>
 
-      {/* FAB */}
-      <TouchableOpacity style={styles.fab}>
-        <Image
-          source={images.plus}
-         style={styles.fabIcon}
-        
-        />
-      </TouchableOpacity>
+      {/* Animated FAB */}
+      <Animated.View style={[
+        styles.fab,
+        {
+          transform: [{ scale: scaleAnim }]
+        }
+      ]}>
+        <TouchableOpacity
+          onPress={() => {
+            Animated.sequence([
+              Animated.timing(scaleAnim, {
+                toValue: 0.9,
+                duration: 100,
+                useNativeDriver: true,
+              }),
+              Animated.spring(scaleAnim, {
+                toValue: 1,
+                tension: 40,
+                friction: 7,
+                useNativeDriver: true,
+              })
+            ]).start();
+          }}>
+          <Image
+            source={images.plus}
+            style={styles.fabIcon}
+          />
+        </TouchableOpacity>
+      </Animated.View>
     </SafeAreaView>
   );
 };
@@ -259,4 +315,4 @@ const styles = StyleSheet.create({
   }
 });
 
-export default ConversationsScreen; 
+export default ConversationsScreen;
